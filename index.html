@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>研削加工支援ツール Ver0.2</title>
+<style>
+:root{
+  --navy:#1f4e78; --navy2:#173a5b; --bg:#eef2f5; --card:#fff; --line:#cfd7df;
+  --okbg:#c6efce; --ok:#006100; --ngbg:#ffc7ce; --ng:#9c0006; --warn:#fff2cc;
+  --bluebg:#ddebf7; --blue:#1f4e78; --text:#1f2937;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);font-family:"Meiryo UI","Yu Gothic UI",sans-serif;color:var(--text)}
+header{background:linear-gradient(90deg,var(--navy2),var(--navy));color:#fff;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+header h1{font-size:21px;margin:0}
+header .small{font-size:12px;opacity:.9}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;padding:10px 14px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+button{border:0;border-radius:6px;padding:9px 13px;font-weight:700;cursor:pointer}
+.primary{background:var(--navy);color:#fff}.secondary{background:var(--bluebg);color:var(--blue)}
+.danger{background:#f8d7da;color:#842029}.light{background:#f3f5f7;color:#374151;border:1px solid #d8dde3}
+.wrap{max-width:1450px;margin:14px auto;padding:0 14px}
+.layout{display:grid;grid-template-columns:365px 1fr 355px;gap:14px;align-items:start}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 2px 8px #0000000a;overflow:hidden}
+.card h2{margin:0;padding:11px 14px;background:#f7f9fb;border-bottom:1px solid var(--line);font-size:16px}
+.section{padding:10px 12px}
+.group-title{font-weight:700;color:var(--navy);background:#edf4fa;padding:7px 8px;border-radius:5px;margin:9px 0 6px}
+.row{display:grid;grid-template-columns:1fr 92px 38px;gap:7px;align-items:center;margin:6px 0}
+.row label{font-size:13px}
+input{width:100%;padding:7px 8px;border:1px solid #aeb8c2;border-radius:5px;text-align:right;font-size:13px;background:#fff}
+input.changed{background:#fff2cc}
+input.ng{background:var(--ngbg);border-color:#c00000;color:var(--ng)}
+.status{padding:11px 12px;border-radius:7px;font-weight:700;margin-bottom:10px}
+.ok{background:var(--okbg);color:var(--ok)}.bad{background:var(--ngbg);color:var(--ng)}.idle{background:#e8edf2;color:#4b5563}
+.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:10px}
+.summary div{background:#f7f9fb;border:1px solid var(--line);border-radius:6px;padding:8px;text-align:center}
+.summary b{display:block;color:var(--navy);font-size:15px;margin-top:2px}
+.tabs{display:flex;border-bottom:1px solid var(--line);background:#f7f9fb}
+.tab{padding:10px 16px;cursor:pointer;font-weight:700;color:#5b6773}
+.tab.active{background:#fff;color:var(--navy);border-bottom:3px solid var(--navy)}
+.canvas-wrap{padding:12px}
+canvas{width:100%;height:540px;border:1px solid var(--line);border-radius:8px;background:#fff}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{border:1px solid var(--line);padding:7px;text-align:center}
+th{background:#eef3f8}
+.point-p{color:#0055cc;font-weight:700}.point-t{color:#c00000;font-weight:700}.point-s{color:#c05000;font-weight:700}
+.errors{font-size:12px;line-height:1.6;margin-top:8px}
+.note{font-size:12px;color:#5c6875;line-height:1.5}
+.saved{font-size:12px;color:#006100;margin-left:auto;align-self:center}
+@media(max-width:1150px){.layout{grid-template-columns:340px 1fr}.right{grid-column:1/-1}}
+@media(max-width:760px){.layout{grid-template-columns:1fr}.right{grid-column:auto}.toolbar{position:static}}
+@media print{
+  header,.toolbar,.left,.note{display:none!important}
+  body{background:#fff}
+  .wrap{max-width:none;margin:0;padding:0}
+  .layout{display:block}
+  .card{box-shadow:none;border:0}
+  .right{margin-top:10px}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>研削加工支援ツール <span style="font-size:13px">Ver0.2</span></h1>
+  <div class="small">スライドインサート / オフライン試作</div>
+</header>
+
+<div class="toolbar">
+  <button class="primary" onclick="calc(true)">計算・形状チェック</button>
+  <button class="secondary" onclick="saveCondition()">条件保存</button>
+  <button class="secondary" onclick="loadCondition()">保存条件を読込</button>
+  <button class="light" onclick="window.print()">印刷</button>
+  <button class="danger" onclick="resetSample()">サンプル値へ戻す</button>
+  <span id="saveMsg" class="saved"></span>
+</div>
+
+<div class="wrap">
+<div class="layout">
+
+  <div class="card left">
+    <h2>入力条件</h2>
+    <div class="section" id="inputs"></div>
+    <div class="note">
+      入力変更は黄色表示。計算時にNG項目は赤表示します。<br>
+      Excel・インストール・インターネット接続は不要です。
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tabs">
+      <div id="tabWidth" class="tab active" onclick="setTab('width')">① 幅加工</div>
+      <div id="tabTaper" class="tab" onclick="setTab('taper')">② テーパー加工</div>
+    </div>
+    <div class="canvas-wrap">
+      <div id="status" class="status idle">条件を入力して「計算・形状チェック」を押してください。</div>
+      <div class="summary">
+        <div>ワーク原点位置<b id="origin">---</b></div>
+        <div>左ストローク<b id="strokeL">---</b></div>
+        <div>右ストローク<b id="strokeR">---</b></div>
+      </div>
+      <canvas id="cv" width="900" height="540"></canvas>
+    </div>
+  </div>
+
+  <div class="card right">
+    <h2>座標結果</h2>
+    <div class="section">
+      <table>
+        <thead><tr><th>POINT</th><th>X</th><th>Z</th><th>補正Z</th></tr></thead>
+        <tbody id="result"></tbody>
+      </table>
+      <div id="errors" class="errors"></div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+const groups = [
+  ["① ワーク原点",[
+    ["jig","治具左端→フランジ端面",0,"mm"],["allow","左取り代",0.2,"mm"],["work","ワーク全長",32,"mm"]
+  ]],
+  ["② 幅加工",[
+    ["width","幅 正寸",16,"mm"],["diaL","左径 正寸",50,"mm"],["diaR","右径 正寸",53,"mm"],["wheel","幅加工砥石幅",16,"mm"]
+  ]],
+  ["③ テーパー加工",[
+    ["angL","左テーパー角度",10,"°"],["angR","右テーパー角度",10,"°"],
+    ["lenL","左テーパー長さ",8,"mm"],["lenR","右テーパー長さ",8,"mm"],
+    ["intL","左テーパー交点径",50.5,"mm"],["intR","右テーパー交点径",53.5,"mm"],
+    ["r","R補正",0.5,"mm"]
+  ]],
+  ["④ テーパー砥石",[
+    ["tWheel","テーパー加工砥石幅",30,"mm"],["tPart","砥石テーパ幅",5,"mm"],["clear","端面逃げ",0.5,"mm"]
+  ]]
+];
+const allDefs = groups.flatMap(g=>g[1]);
+let activeTab="width";
+let lastData=null;
+
+function buildInputs(){
+  const root=document.getElementById("inputs");
+  root.innerHTML="";
+  groups.forEach(([title,defs])=>{
+    root.insertAdjacentHTML("beforeend",`<div class="group-title">${title}</div>`);
+    defs.forEach(([id,label,val,unit])=>{
+      root.insertAdjacentHTML("beforeend",
+       `<div class="row"><label for="${id}">${label}</label><input id="${id}" type="number" step="0.001" value="${val}" oninput="markChanged(this)"><span>${unit}</span></div>`);
+    });
+  });
+}
+function markChanged(el){el.classList.add("changed")}
+function v(id){return Number(document.getElementById(id).value)}
+function f(n){return Number.isFinite(n)?n.toFixed(3):"---"}
+function labelOf(id){return document.querySelector(`label[for="${id}"]`).textContent}
+function markNg(ids){ids.forEach(id=>document.getElementById(id)?.classList.add("ng"))}
+function clearMarks(){document.querySelectorAll("input").forEach(x=>x.classList.remove("ng"))}
+
+function calc(showAlert){
+  clearMarks();
+  const err=[];
+  allDefs.forEach(([id,label])=>{
+    if(document.getElementById(id).value.trim()==="" || !Number.isFinite(v(id))){
+      err.push(`${label}：数値を入力してください`); markNg([id]);
+    }
+  });
+  if(err.length){showBad(err);return false}
+
+  const work=v("work"),width=v("width"),lenL=v("lenL"),lenR=v("lenR");
+  const angL=v("angL"),angR=v("angR"),r=v("r"),diaL=v("diaL"),diaR=v("diaR");
+  const intL=v("intL"),intR=v("intR"),wheel=v("wheel"),tWheel=v("tWheel"),tPart=v("tPart"),clear=v("clear");
+
+  ["work","width","diaL","diaR","lenL","lenR","intL","intR","wheel","tWheel","tPart"].forEach(id=>{
+    if(v(id)<=0){err.push(`${labelOf(id)}：0より大きい値にしてください`);markNg([id])}
+  });
+  ["jig","allow","r","clear"].forEach(id=>{
+    if(v(id)<0){err.push(`${labelOf(id)}：0以上にしてください`);markNg([id])}
+  });
+  ["angL","angR"].forEach(id=>{
+    if(v(id)<=0||v(id)>=90){err.push(`${labelOf(id)}：0°より大きく90°未満にしてください`);markNg([id])}
+  });
+
+  if(Math.abs(work-(lenL+width+lenR))>0.0015){
+    err.push(`ワーク全長不成立：左テーパー＋幅＋右テーパー = ${f(lenL+width+lenR)} mm / 全長 = ${f(work)} mm`);
+    markNg(["work","lenL","width","lenR"]);
+  }
+  if(r>=lenL){err.push("左側：R補正は左テーパー長さより小さくしてください");markNg(["r","lenL"])}
+  if(r>=lenR){err.push("右側：R補正は右テーパー長さより小さくしてください");markNg(["r","lenR"])}
+
+  const strokeL=lenL-clear-tPart, strokeR=lenR-clear-tPart;
+  if(strokeL<=0){err.push(`左テーパー加工ストロークが0以下：${f(strokeL)} mm`);markNg(["lenL","clear","tPart"])}
+  if(strokeR<=0){err.push(`右テーパー加工ストロークが0以下：${f(strokeR)} mm`);markNg(["lenR","clear","tPart"])}
+  if(tPart>tWheel){err.push("砥石テーパ幅がテーパー加工砥石全幅を超えています");markNg(["tPart","tWheel"])}
+
+  const radL=angL*Math.PI/180, radR=angR*Math.PI/180;
+
+  const P1={x:diaL,z:-(width+lenR),adj:-(width+lenR)-wheel};
+  const P2={x:diaR,z:-lenR,adj:null};
+
+  const T1={x:intL-2*lenL*Math.tan(radL),z:-work,adj:-work-tWheel};
+  const T2={x:intL-2*r*Math.tan(radL),z:-work+lenL-r,adj:(-work+lenL-r)-tWheel};
+  const T3={x:intR-2*r*Math.tan(radR),z:-lenR+r,adj:null};
+  const T4={x:intR-2*lenR*Math.tan(radR),z:0,adj:null};
+
+  const stopL={
+    z:T2.z-strokeL,
+    x:T2.x+(T1.x-T2.x)*(strokeL/(lenL-r)),
+    adj:(T2.z-strokeL)-tWheel
+  };
+  const stopR={
+    z:T3.z+strokeR,
+    x:T3.x+(T4.x-T3.x)*(strokeR/(lenR-r)),
+    adj:null
+  };
+
+  if(T1.x<=0||T2.x<=0){err.push("左テーパー計算径が0以下になります");markNg(["angL","lenL","intL"])}
+  if(T3.x<=0||T4.x<=0){err.push("右テーパー計算径が0以下になります");markNg(["angR","lenR","intR"])}
+  if(T1.x>=T2.x){err.push("左テーパー形状が逆転しています");markNg(["angL","lenL","r"])}
+  if(T4.x>=T3.x){err.push("右テーパー形状が逆転しています");markNg(["angR","lenR","r"])}
+  if(T2.x<diaL){err.push(`T2径 ${f(T2.x)} が左径 ${f(diaL)} より小さくなります`);markNg(["diaL","intL","angL","r"])}
+  if(T3.x<diaR){err.push(`T3径 ${f(T3.x)} が右径 ${f(diaR)} より小さくなります`);markNg(["diaR","intR","angR","r"])}
+
+  if(err.length){showBad(err);return false}
+
+  lastData={P1,P2,T1,T2,T3,T4,stopL,stopR,strokeL,strokeR,origin:v("jig")+v("allow")+work,width,lenL,lenR,diaL,diaR};
+
+  document.getElementById("status").className="status ok";
+  document.getElementById("status").textContent="OK　入力・形状成立";
+  document.getElementById("origin").textContent=f(lastData.origin)+" mm";
+  document.getElementById("strokeL").textContent=f(strokeL)+" mm";
+  document.getElementById("strokeR").textContent=f(strokeR)+" mm";
+  document.getElementById("errors").innerHTML="";
+  renderTable();
+  draw();
+  return true;
+}
+
+function renderTable(){
+  if(!lastData)return;
+  const d=lastData;
+  const rows=[
+    ["P1",d.P1,"point-p"],["P2",d.P2,"point-p"],
+    ["T1",d.T1,"point-t"],["T2",d.T2,"point-t"],["T3",d.T3,"point-t"],["T4",d.T4,"point-t"],
+    ["左ストローク終点",d.stopL,"point-s"],["右ストローク終点",d.stopR,"point-s"]
+  ];
+  document.getElementById("result").innerHTML=rows.map(([n,p,cls])=>
+    `<tr><td class="${cls}">${n}</td><td>${f(p.x)}</td><td>${f(p.z)}</td><td>${p.adj==null?"—":f(p.adj)}</td></tr>`).join("");
+}
+function showBad(err){
+  lastData=null;
+  document.getElementById("status").className="status bad";
+  document.getElementById("status").textContent="NG　入力または形状条件を確認してください";
+  document.getElementById("origin").textContent="---";
+  document.getElementById("strokeL").textContent="---";
+  document.getElementById("strokeR").textContent="---";
+  document.getElementById("result").innerHTML="";
+  document.getElementById("errors").innerHTML=err.map(x=>"・"+x).join("<br>");
+  clearCanvas();
+}
+function setTab(tab){
+  activeTab=tab;
+  document.getElementById("tabWidth").classList.toggle("active",tab==="width");
+  document.getElementById("tabTaper").classList.toggle("active",tab==="taper");
+  draw();
+}
+function clearCanvas(){const c=document.getElementById("cv"),ctx=c.getContext("2d");ctx.clearRect(0,0,c.width,c.height)}
+function draw(){
+  clearCanvas(); if(!lastData)return;
+  if(activeTab==="width")drawWidth();else drawTaper();
+}
+function baseCanvas(){
+  const c=document.getElementById("cv"),ctx=c.getContext("2d");
+  ctx.font="14px Meiryo UI";ctx.fillStyle="#6b7280";ctx.fillText("※ 簡易形状表示（寸法確認用）",18,25);
+  return [c,ctx];
+}
+function drawWidth(){
+  const [c,ctx]=baseCanvas(),d=lastData;
+  const left=130,right=760,cy=280,h1=120,h2=138;
+  const z0=right-90, zLeft=z0-(d.lenR+d.width+d.lenL)*12;
+  const p1x=z0-(d.lenR+d.width)*12, p2x=z0-d.lenR*12;
+
+  ctx.fillStyle="#707070";ctx.fillRect(90,cy-28,700,56);
+  ctx.strokeStyle="#222";ctx.lineWidth=2;ctx.strokeRect(90,cy-28,700,56);
+
+  ctx.fillStyle="#e5e7eb";
+  ctx.beginPath();
+  ctx.moveTo(zLeft,cy-h1/2);ctx.lineTo(p1x,cy-d.diaL);
+  ctx.lineTo(p2x,cy-d.diaR);ctx.lineTo(z0,cy-h1/2);
+  ctx.lineTo(z0,cy+h1/2);ctx.lineTo(zLeft,cy+h1/2);ctx.closePath();ctx.fill();ctx.stroke();
+
+  drawVLine(ctx,z0,145,410,"#ed7d31","Z0");
+  drawPoint(ctx,p1x,cy-d.diaL,"P1","#0055cc",`${f(d.P1.x)} / ${f(d.P1.z)}`);
+  drawPoint(ctx,p2x,cy-d.diaR,"P2","#0055cc",`${f(d.P2.x)} / ${f(d.P2.z)}`);
+
+  ctx.strokeStyle="#4472c4";ctx.lineWidth=1.5;
+  dimH(ctx,p1x,p2x,455,"16.0");
+}
+function drawTaper(){
+  const [c,ctx]=baseCanvas(),d=lastData;
+  const zmin=d.T1.z,zmax=d.T4.z,xmin=Math.min(d.T1.x,d.T4.x)-3,xmax=Math.max(d.T2.x,d.T3.x)+4;
+  const padL=115,padR=770,padT=105,padB=445;
+  const X=z=>padL+(z-zmin)/(zmax-zmin)*(padR-padL);
+  const Y=x=>padB-(x-xmin)/(xmax-xmin)*(padB-padT);
+
+  ctx.fillStyle="#707070";ctx.fillRect(85,250,720,50);ctx.strokeStyle="#222";ctx.strokeRect(85,250,720,50);
+  ctx.strokeStyle="#1f4e78";ctx.lineWidth=3;
+  ctx.beginPath();ctx.moveTo(X(d.T1.z),Y(d.T1.x));ctx.lineTo(X(d.T2.z),Y(d.T2.x));ctx.lineTo(X(d.T3.z),Y(d.T3.x));ctx.lineTo(X(d.T4.z),Y(d.T4.x));ctx.stroke();
+
+  [["T1",d.T1],["T2",d.T2],["T3",d.T3],["T4",d.T4]].forEach(([n,p])=>drawPoint(ctx,X(p.z),Y(p.x),n,"#c00000",`${f(p.x)} / ${f(p.z)}`));
+  drawPoint(ctx,X(d.stopL.z),Y(d.stopL.x),"左終点","#c05000",`${f(d.stopL.x)} / ${f(d.stopL.z)}`);
+  drawPoint(ctx,X(d.stopR.z),Y(d.stopR.x),"右終点","#c05000",`${f(d.stopR.x)} / ${f(d.stopR.z)}`);
+
+  dimH(ctx,X(d.T1.z),X(d.T2.z),470,f(d.lenL));
+  dimH(ctx,X(d.T2.z),X(d.T3.z),505,f(d.width));
+  dimH(ctx,X(d.T3.z),X(d.T4.z),470,f(d.lenR));
+}
+function drawPoint(ctx,x,y,name,color,sub){
+  ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.fillStyle=color;ctx.fill();
+  ctx.font="bold 14px Meiryo UI";ctx.fillStyle=color;ctx.fillText(name,x+8,y-8);
+  ctx.font="12px Meiryo UI";ctx.fillStyle="#374151";ctx.fillText(sub,x+8,y+9);
+}
+function drawVLine(ctx,x,y1,y2,color,label){
+  ctx.save();ctx.setLineDash([7,5]);ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,y1);ctx.lineTo(x,y2);ctx.stroke();ctx.restore();
+  ctx.fillStyle=color;ctx.font="bold 15px Meiryo UI";ctx.fillText(label,x+6,y1+15);
+}
+function dimH(ctx,x1,x2,y,text){
+  ctx.strokeStyle="#4472c4";ctx.fillStyle="#4472c4";ctx.lineWidth=1.4;
+  ctx.beginPath();ctx.moveTo(x1,y);ctx.lineTo(x2,y);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x1,y);ctx.lineTo(x1+8,y-5);ctx.lineTo(x1+8,y+5);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(x2,y);ctx.lineTo(x2-8,y-5);ctx.lineTo(x2-8,y+5);ctx.closePath();ctx.fill();
+  ctx.font="13px Meiryo UI";ctx.fillText(text,(x1+x2)/2-16,y-7);
+}
+function saveCondition(){
+  const data={};allDefs.forEach(([id])=>data[id]=document.getElementById(id).value);
+  localStorage.setItem("grindingToolCondition",JSON.stringify(data));
+  document.getElementById("saveMsg").textContent="条件を保存しました";
+  setTimeout(()=>document.getElementById("saveMsg").textContent="",2500);
+}
+function loadCondition(){
+  const raw=localStorage.getItem("grindingToolCondition");
+  if(!raw){document.getElementById("saveMsg").textContent="保存条件がありません";return}
+  const data=JSON.parse(raw);
+  allDefs.forEach(([id])=>{if(data[id]!==undefined){document.getElementById(id).value=data[id];document.getElementById(id).classList.add("changed")}});
+  calc(false);document.getElementById("saveMsg").textContent="保存条件を読み込みました";
+  setTimeout(()=>document.getElementById("saveMsg").textContent="",2500);
+}
+function resetSample(){
+  allDefs.forEach(([id,label,val])=>{const el=document.getElementById(id);el.value=val;el.classList.remove("changed","ng")});
+  calc(false);
+}
+buildInputs();calc(false);
+</script>
+</body>
+</html>
